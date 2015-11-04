@@ -23,7 +23,7 @@ class RallyCI:
         cfg.read(cfgfile)
         cfg = cfg["github"]
         self._db = dbm.open(cfg["token_db_path"], "cs")
-        self._oauth = github.Oauth(cfg["client_id"], cfg["client_secret"])
+        self._oauth = github.OAuth(cfg["client_id"], cfg["client_secret"])
 
     @asyncio.coroutine
     def setup(self, request):

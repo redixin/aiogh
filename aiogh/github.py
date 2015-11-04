@@ -42,7 +42,34 @@ class Client:
         return data
 
 
-class Oauth:
+class OAuth:
+    """Handle OAuth github protocol.
+
+    Usage:
+        from aiogh import github
+
+        ...
+        # somewhere in your app
+        self.oauth = github.Oauth("my_client_id", "secret")
+        ...
+
+        ...
+        # somewhere in web page handler
+        url = self.oauth.generate_request_url(("put", "scopes", "here"))
+        # make user open it
+        return http_redirect(url)
+        ...
+
+        ...
+        # somewhere in oauth callback handler
+        code = request.GET["code"]
+        state = request.GET["state"]
+        client = oauth.oauth(code, state)
+        # save user token if needed
+        self.db.save_token(client.token)
+        ...
+
+    """
 
     def __init__(self, client_id, client_secret):
         """Init github oauth app.
@@ -55,7 +82,7 @@ class Oauth:
         self._requested_scopes = {}
 
     def generate_request_url(self, scopes: tuple):
-        """Generate url and bind a callback.
+        """Generate OAuth request url.
 
         :param scopes: github access scopes
                        (https://developer.github.com/v3/oauth/#scopes)
@@ -74,6 +101,8 @@ class Oauth:
     @asyncio.coroutine
     def oauth(self, code, state):
         """Handler for Authorization callback URL.
+
+        'code' and 'state' are GET variables given by github
 
         :param string code:
         :param string state:
