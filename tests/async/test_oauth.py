@@ -4,29 +4,30 @@ import mock
 import unittest
 
 from aiogh import github
+from aiogh.github import exceptions
 
 
 class FakeClient:
     args = []
     kwargs = []
 
-    def __init__(self, loop, text=None):
+    def __init__(self, loop, json=None):
         self.loop = loop
-        self.text = text
+        self.json = json
 
     @asyncio.coroutine
     def post(self, *args, **kwargs):
         self.args.append(args)
         self.kwargs.append(kwargs)
-        return mock.Mock(text=self._text)
+        return mock.Mock(json=self._json)
 
     @asyncio.coroutine
-    def _text(self):
-        return self.text
+    def _json(self):
+        return self.json
 
 
-class OAuthTestCase(unittest.TestCase):
-    
+class AsyncTestCase(unittest.TestCase):
+
     def setUp(self):
         self.loop = asyncio.new_event_loop()
 
@@ -34,14 +35,20 @@ class OAuthTestCase(unittest.TestCase):
         self.loop.stop()
         del(self.loop)
 
+    def yield_from(self, coro):
+        return self.loop.run_until_complete(coro)
+
+
+class OAuthTestCase(AsyncTestCase):
+
     @mock.patch("aiogh.github.aiohttp")
     def test_oauth(self, mock_aiohttp):
-        fake_client = FakeClient(self.loop, '{"access_token": "fake_token"}')
+        fake_client = FakeClient(self.loop, {"access_token": "fake_token"})
         mock_aiohttp.post = fake_client.post
         oauth = github.OAuth("fake_client_id", "fake_secret")
         url = oauth.generate_request_url(("scope1", "scope2"))
         state = list(oauth._requested_scopes.keys())[0]
-        client = self.loop.run_until_complete(oauth.oauth('fake_code', state))
+        client = self.yield_from(oauth.oauth('fake_code', state))
         self.assertEqual("fake_token", client.token)
         headers = fake_client.kwargs[0]["headers"]
         data = fake_client.kwargs[0]["data"]

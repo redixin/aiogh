@@ -5,10 +5,27 @@ import string
 import json
 
 import aiohttp
+from . import exceptions
+
 
 REQ_ACCESS_URL = "https://github.com/login/oauth/authorize"
 REQ_TOKEN_URL = "https://github.com/login/oauth/access_token"
 API_URL = "https://api.github.com/"
+
+
+class Response:
+    """Wrapper class for aiohttp response"""
+
+    def __init__(self, response):
+        self._response = response
+
+    @property
+    def status(self):
+        return self._response.status
+
+    @asyncio.coroutine
+    def json(self):
+        return (yield from self._response.json())
 
 
 class Client:
@@ -23,23 +40,24 @@ class Client:
 
     """
 
-    def __init__(self, token, scopes=None):
+    def __init__(self, token=None, scopes=None):
         self.token = token
-        self._scopes = scopes
+        self.scopes = scopes
+        self.headers = {
+            "Accept": "application/json",
+        }
+        if token:
+            self.headers["Authorization"] = "token " + token,
 
     @asyncio.coroutine
     def get(self, uri, **params):
-        headers = {
-            "Accept": "application/json",
-            "Authorization": "token " + self.token,
-        }
         resp = yield from aiohttp.get(API_URL + uri,
                                       params=params,
-                                      headers=headers)
-        data = yield from resp.text()
-        if resp.headers["content-type"].startswith("application/json"):
-            data = json.loads(data)
-        return data
+                                      headers=self.headers)
+        resp = Response(resp)
+        if 200 > resp.status > 300:
+            raise exceptions.HttpError(resp)
+        return resp
 
 
 class OAuth:
@@ -107,8 +125,12 @@ class OAuth:
         :param string code:
         :param string state:
         :return: Client instance
+        :raises: exceptions.GithubException
         """
-        scopes = self._requested_scopes.pop(state)
+        try:
+            scopes = self._requested_scopes.pop(state)
+        except KeyError:
+            raise exceptions.UnknownState(state)
         data = {
             "client_id": self._client_id,
             "client_secret": self._client_secret,
@@ -121,5 +143,5 @@ class OAuth:
         response = yield from aiohttp.post(REQ_TOKEN_URL,
                                            data=data,
                                            headers=headers)
-        data = json.loads((yield from response.text()))
+        data = yield from response.json()
         return Client(data["access_token"], scopes)
