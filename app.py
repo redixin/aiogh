@@ -22,12 +22,14 @@ class RallyCI:
         cfg = configparser.ConfigParser()
         cfg.read(cfgfile)
         cfg = cfg["github"]
-        self._db = dbm.open(cfg["token_db_path"], "cs")
+        db_dir = cfg["db_dir"]
+        self._tokens = dbm.open(os.path.join(db_dir, "tokens.db") "cs")
+        self._projects = dbm.open(os.path.join(db_dir, "projects.db") "cs")
         self._oauth = github.OAuth(cfg["client_id"], cfg["client_secret"])
 
     @asyncio.coroutine
     def setup(self, request):
-        return web.Response(body=b"""<form action=/register method=post />
+        return web.Response(body=b"""<form action=authorize method=post />
                 <input name=ok value=ok type=hidden>
                 <input type=submit value=Register></input></form>""")
 
@@ -43,6 +45,8 @@ class RallyCI:
         yield from req_data(request)
         c = yield from self._oauth.oauth(request.GET["code"],
                                          request.GET["state"])
+        user_data = yield from c.get("user")
+        self._tokens[user_data["id"]] = c.token
         repos_data = yield from c.get("user/repos", affiliation="owner")
         repos = []
         for repo in repos_data:

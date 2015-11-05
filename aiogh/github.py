@@ -47,17 +47,18 @@ class Client:
             "Accept": "application/json",
         }
         if token:
-            self.headers["Authorization"] = "token " + token,
+            self.headers.update({"Authorization": "token " + token})
 
     @asyncio.coroutine
-    def get(self, uri, **params):
+    def get(self, uri, full_response=False, **params):
         resp = yield from aiohttp.get(API_URL + uri,
                                       params=params,
                                       headers=self.headers)
-        resp = Response(resp)
         if 200 > resp.status > 300:
-            raise exceptions.HttpError(resp)
-        return resp
+            raise exceptions.HttpError(Response(resp))
+        if full_response:
+            return Response(resp)
+        return (yield from resp.json())
 
 
 class OAuth:
