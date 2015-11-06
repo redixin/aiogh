@@ -1,10 +1,8 @@
-import aiohttp
 import asyncio
 import mock
 import unittest
 
 from aiogh import github
-from aiogh.github import exceptions
 
 
 class FakeClient:
@@ -46,7 +44,7 @@ class OAuthTestCase(AsyncTestCase):
         fake_client = FakeClient(self.loop, {"access_token": "fake_token"})
         mock_aiohttp.post = fake_client.post
         oauth = github.OAuth("fake_client_id", "fake_secret")
-        url = oauth.generate_request_url(("scope1", "scope2"))
+        oauth.generate_request_url(("scope1", "scope2"))
         state = list(oauth._requested_scopes.keys())[0]
         client = self.yield_from(oauth.oauth('fake_code', state))
         self.assertEqual("fake_token", client.token)

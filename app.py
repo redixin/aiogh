@@ -3,8 +3,13 @@ import asyncio
 from aiohttp import web
 import configparser
 import sys
+import os.path
+import json
 
 from aiogh import github
+
+from aiohttp_session import get_session, session_middleware
+from aiohttp_session.cookie_storage import EncryptedCookieStorage
 
 
 @asyncio.coroutine
@@ -22,16 +27,69 @@ class RallyCI:
         cfg = configparser.ConfigParser()
         cfg.read(cfgfile)
         cfg = cfg["github"]
+        self._webhook_secret = cfg["webhook_secret"]
+        self._session_key = cfg["session_key"].encode('ascii')
         db_dir = cfg["db_dir"]
-        self._tokens = dbm.open(os.path.join(db_dir, "tokens.db") "cs")
-        self._projects = dbm.open(os.path.join(db_dir, "projects.db") "cs")
+        self._tokens = dbm.open(os.path.join(db_dir, "tokens.db"), "cs")
+        self._repos = dbm.open(os.path.join(db_dir, "repos.db"), "cs")
         self._oauth = github.OAuth(cfg["client_id"], cfg["client_secret"])
 
     @asyncio.coroutine
+    def home(self, request):
+        session = yield from get_session(request)
+        token = self._tokens.get(session.get("uid", ""), b"")
+        c = github.Client(token.decode('ascii'))
+        if not c.token:
+            return web.Response(body=b"""<form action=authorize method=post />
+                    <input name=ok value=ok type=hidden>
+                    <input type=submit value=Register></input></form>""")
+
+        repos_data = yield from c.get("user/repos", affiliation="owner")
+        repos = []
+        for repo in repos_data:
+            repo_id = str(repo["id"])
+            repo_data = self._repos.get(repo_id)
+            if not repo_data:
+                repo_data = [repo["full_name"], None]
+                self._repos[repo_id] = json.dumps(repo_data)
+            else:
+                repo_data = json.loads(repo_data.decode('ascii'))
+            repos.append((
+                repo_id,
+                repo["name"],
+                repo["full_name"],
+                repo["description"],
+                repo_data[1],
+            ))
+        with open("app.html", "r") as app:
+            app = app.read()
+        app = app % json.dumps(repos)
+        return web.Response(body=app.encode("utf8"))
+
+    @asyncio.coroutine
     def setup(self, request):
-        return web.Response(body=b"""<form action=authorize method=post />
-                <input name=ok value=ok type=hidden>
-                <input type=submit value=Register></input></form>""")
+        session = yield from get_session(request)
+        token = self._tokens.get(session.get("uid", ""))
+        if not token:
+            return web.HTTPUnauthorized()
+        c = github.Client(token.decode('ascii'))
+        yield from request.post()
+        repo_data = json.loads(self._repos.get(
+            request.POST["id"]).decode('ascii'))
+        owner, repo = repo_data[0].split('/')
+        res = yield from c.get("/repos/:owner/:repo/hooks", owner, repo)
+        if len(res) == 0:
+            config = {
+                "url": "https://eyein.tk/webhook",
+                "secret": self._webhook_secret,
+            }
+            events = ["push", "pull_request"]
+            res = yield from c.post("/repos/:owner/:repo/hooks", owner, repo,
+                                    name="web", active=True, config=config,
+                                    events=events)
+            print(res)
+        else:
+            print(res)
 
     @asyncio.coroutine
     def authorize(self, request):
@@ -46,23 +104,26 @@ class RallyCI:
         c = yield from self._oauth.oauth(request.GET["code"],
                                          request.GET["state"])
         user_data = yield from c.get("user")
-        self._tokens[user_data["id"]] = c.token
-        repos_data = yield from c.get("user/repos", affiliation="owner")
-        repos = []
-        for repo in repos_data:
-            repo_id = str(repo["id"])
-            repos.append((
-                repo_id,
-                repo["full_name"],
-                repo["description"],
-                repo_id in self._db,
-            ))
-        return web.Response(body=repr(repos).encode("ascii"))
+        uid = hex(user_data["id"])[2:]
+        self._tokens[uid] = c.token
+        session = yield from get_session(request)
+        session["uid"] = uid
+        return web.HTTPFound("home")
+
+    @asyncio.coroutine
+    def webhook(self, request):
+        print(request)
+        yield from request.post()
+        print(request.POST)
+        return web.Response(body=b"ok")
 
     @asyncio.coroutine
     def run(self):
-        self.app = web.Application()
-        self.app.router.add_route('GET', '/setup', self.setup)
+        sm = session_middleware(EncryptedCookieStorage(self._session_key))
+        self.app = web.Application(middlewares=[sm])
+        self.app.router.add_route('POST', '/webhook', self.webhook)
+        self.app.router.add_route('POST', '/setup', self.setup)
+        self.app.router.add_route('GET', '/home', self.home)
         self.app.router.add_route('POST', '/authorize', self.authorize)
         self.app.router.add_route('GET', '/oauth', self.oauth)
         self.handler = self.app.make_handler()

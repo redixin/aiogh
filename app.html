@@ -1,0 +1,41 @@
+<html>
+<head>
+<script src="//code.jquery.com/jquery-1.11.2.min.js"></script>
+<script type="text/javascript">
+var repos = %s;
+
+function conf(id,test) {
+    var test = test ? "selected" : "";
+    return("<select id='"+id+"' class=setup><option>skip</option>"+
+            "<option value=tox "+test+">run tox</option></select></form>");
+}
+
+$(function(){
+    for(i in repos) {
+        var r = repos[i];
+        $("#repos").append("<tr><td>"+r[1]+"</td><td>"+r[2]+"</td><td>"+
+                           r[3]+"</td><td>"+conf(r[0], r[4])+"</td></tr>");
+    }
+
+    $(".setup").change(function(){
+        console.log(this.id + $(this).val());
+        var id = this.id;
+        $.ajax({
+            method: "post",
+            url: "setup",
+            data: {id: id, val: $(this).val()},
+            success: function(data, status) {
+                $("#" + id);
+                console.log(id);
+            }
+        });
+    });
+});
+</script>
+</head>
+<body>
+<h1>ok<h1>
+<table id=repos><tbody></tbody></table>
+
+</body>
+</html>

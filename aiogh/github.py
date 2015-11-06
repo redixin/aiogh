@@ -3,6 +3,7 @@ from urllib import parse
 import random
 import string
 import json
+import re
 
 import aiohttp
 from . import exceptions
@@ -11,6 +12,31 @@ from . import exceptions
 REQ_ACCESS_URL = "https://github.com/login/oauth/authorize"
 REQ_TOKEN_URL = "https://github.com/login/oauth/access_token"
 API_URL = "https://api.github.com/"
+
+SAFE_NAME_RE = re.compile(r"[a-z\d][a-z\d\-]+[a-z\d]", re.IGNORECASE)
+
+
+def safe_bit(bit, value):
+    if "--" in value:
+        raise ValueError("Double dashes are not allowed.")
+    if not SAFE_NAME_RE.match(value):
+        raise ValueError("Value is not safe")
+    return value
+
+
+def format_uri(uri, args):
+    r = ""
+    for bit in uri.split("/"):
+        if not bit:
+            continue
+        r += "/"
+        if bit.startswith(":"):
+            r += safe_bit(bit, args.pop(0))
+        else:
+            r += bit
+    if args:
+        raise ValueError("Not all arguments formatted")
+    return r[1:]
 
 
 class Response:
@@ -43,14 +69,36 @@ class Client:
     def __init__(self, token=None, scopes=None):
         self.token = token
         self.scopes = scopes
+        self.post_headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
         self.headers = {
             "Accept": "application/json",
         }
         if token:
             self.headers.update({"Authorization": "token " + token})
+            self.post_headers.update({"Authorization": "token " + token})
 
     @asyncio.coroutine
-    def get(self, uri, full_response=False, **params):
+    def post(self, uri, *args, full_response=False, **params):
+        if args:
+            uri = format_uri(uri, list(args))
+        print(API_URL + uri)
+        resp = yield from aiohttp.post(API_URL + uri,
+                                       data=json.dumps(params),
+                                       headers=self.post_headers)
+        if 200 > resp.status > 300:
+            raise exceptions.HttpError(Response(resp))
+        if full_response:
+            return Response(resp)
+        return (yield from resp.json())
+
+    @asyncio.coroutine
+    def get(self, uri, *args, full_response=False, **params):
+        if args:
+            uri = format_uri(uri, list(args))
+        print(API_URL + uri)
         resp = yield from aiohttp.get(API_URL + uri,
                                       params=params,
                                       headers=self.headers)
