@@ -1,9 +1,9 @@
 import asyncio
-from urllib import parse
-import random
-import string
+import base64
 import json
+import os
 import re
+from urllib import parse
 
 import aiohttp
 from . import exceptions
@@ -84,7 +84,6 @@ class Client:
     def post(self, uri, *args, full_response=False, **params):
         if args:
             uri = format_uri(uri, list(args))
-        print(API_URL + uri)
         resp = yield from aiohttp.post(API_URL + uri,
                                        data=json.dumps(params),
                                        headers=self.post_headers)
@@ -98,12 +97,22 @@ class Client:
     def get(self, uri, *args, full_response=False, **params):
         if args:
             uri = format_uri(uri, list(args))
-        print(API_URL + uri)
         resp = yield from aiohttp.get(API_URL + uri,
                                       params=params,
                                       headers=self.headers)
         if 200 > resp.status > 300:
             raise exceptions.HttpError(Response(resp))
+        if full_response:
+            return Response(resp)
+        return (yield from resp.json())
+
+    @asyncio.coroutine
+    def delete(self, uri, *args, full_response=False, **params):
+        if args:
+            uri = format_uri(uri, list(args))
+        resp = yield from aiohttp.delete(API_URL + uri,
+                                         params=params,
+                                         headers=self.headers)
         if full_response:
             return Response(resp)
         return (yield from resp.json())
@@ -156,7 +165,7 @@ class OAuth:
         :param callback: callback to be called when user authorize request
                          (may be coroutine)
         """
-        state = ''.join(random.sample(string.ascii_letters, 16))
+        state = base64.b64encode(os.urandom(15)).decode("ascii")
         self._requested_scopes[state] = scopes
         qs = parse.urlencode({
             "client_id": self._client_id,
